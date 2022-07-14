@@ -1,0 +1,613 @@
+---
+title: "DS740_Final_Code - Phil Callahan"
+author: "Phil Callahan"
+date: "5/2/2021"
+output: pdf_document
+---
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ############################################# High Jump modeling ############################################### ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+
+First we'll start by refining the dataset to only high jumpers.
+```{r, warning=F}
+# import dataset ----------------------------
+olympic <- read.csv("olympic_data.csv") #read in data
+olympic #look at data
+```
+
+Next we separate high jumpers
+```{r, warning=F}
+# separate high jumpers - we'll further split to female/male sets
+# because there'll likely Height/Weight discrepency
+
+#separate male high jumpers
+MhighJumpers <- olympic[which(olympic$Event == "Athletics Men's High Jump"),]
+MhighJumpers
+
+#separate female high jumpers
+FhighJumpers <- olympic[which(olympic$Event == "Athletics Women's High Jump"),]
+FhighJumpers
+```
+ Pull out only necessary columns
+```{r, warning=F}
+#refine the data
+refinedHJm <- MhighJumpers[,c(4,5,6,7,10,15)]
+refinedHJm
+
+refinedHJf <- FhighJumpers[,c(4,5,6,7,10,15)]
+refinedHJf
+```
+final refinement of data frame before model fitting
+```{r, warning=F}
+#make a Medal dummy col for high jumpers --------------------------------
+
+#female df ----------------------------------------------------
+dummyHJf <- refinedHJf #save as new df
+dummyHJf$Medal = factor(dummyHJf$Medal) #convert Medal to fctr
+dummyHJf$Team <- factor(dummyHJf$Team) #convert Team to fctr
+dummyHJf$Medal01 <- ifelse(is.na(dummyHJf$Medal), 0, 1) #create binary column
+# dummyHJf #test print
+
+finalHJf <- dummyHJf[,names(dummyHJf) != "Medal"] #remove Medal col by name
+finalHJf <- finalHJf[,c(1:3,5,4,6)] #reorder df for easier scaling
+# NOTE: future model refinement could include imputation of NAs
+finalHJf <- na.omit(finalHJf) #get rid of the rows with NA
+finalHJf
+
+#repeat for males -------------------------------------------------
+dummyHJm <- refinedHJm #save as new df
+dummyHJm$Medal = factor(dummyHJm$Medal) #convert Medal to fctr
+dummyHJm$Team <- factor(dummyHJm$Team) #convert Team to fctr
+dummyHJm$Medal01 <- ifelse(is.na(dummyHJm$Medal), 0, 1) #create binary column
+# dummyHJm #test print
+finalHJm <- dummyHJm[,names(dummyHJm) != "Medal"] #remove Medal col by name
+finalHJm <- finalHJm[,c(1:3,5,4,6)] #reorder df for easier scaling
+finalHJm <- na.omit(finalHJm) #get rid of the rows with NA
+# NOTE: future model refinement could include imputation of missing vals
+finalHJm #final refined df
+
+```
+
+# ###########################################################################
+# Logistic Regression Model for Male High Jumpers ================================================================
+# ###########################################################################
+NOTE: This analysis started out using both sexes but was abandoned once the complexity was realized.
+
+```{r, warning=F}
+#check for multicollinearity
+pairs(finalHJf, col="salmon")
+pairs(finalHJm, col="cadetblue")
+```
+height and weight appear slightly collinear - to fix this we'll try regressing Weight into the other predictors rather than dropping
+```{r, warning=F}
+#regress height and weight on other preds ----------------------------------------
+fit_WeightF <- lm(Weight ~ Age + Height + Team + Year, data=finalHJf)
+finalHJf$Weight_resid <- fit_WeightF$residuals
+finalHJf <- finalHJf[c(1,2,7,4,5,6)] #replace Weight with Weight_resid
+finalHJf
+
+fit_WeightM <- lm(Weight ~ Age + Height + Team + Year, data=finalHJm)
+finalHJm$Weight_resid <- fit_WeightM$residuals
+finalHJm <- finalHJm[c(1,2,7,4,5,6)] #replace Weight with Weight_resid
+finalHJm
+
+
+#recheck for collinearity
+pairs(finalHJf, col="salmon")
+pairs(finalHJm, col="cadetblue")
+
+
+```
+seems to have fixed possible linearity between Height and Weight
+
+```{r, warning=F}
+#logreg fit model with all chosen vars to check significance
+#female df
+LRtestfit_HJf = glm(Medal01 ~ Age + Height + Weight_resid + Team + Year,
+          data=finalHJf, family=binomial)
+
+summary(LRtestfit_HJf)
+
+#male df
+LRtestfit_HJm = glm(Medal01 ~ Age + Height + Weight_resid + Team + Year,
+          data=finalHJm, family=binomial)
+
+summary(LRtestfit_HJm)
+```
+unexpectedly, different variables are significant for each sex - Height and Age are much different
+*unfortunately, due to scope/time constraints only male high jumper / swimmer analysis was performed ----------------------------------------------------------- *
+
+#male logistic regression with cross-validation
+# ###################################################################################################
+```{r, warning=F}
+
+#setup CV params ===================================
+nLRhjM=dim(finalHJm)[1] #num of observations
+kLRhjM=10 #using 10-fold cross-validation
+groupsLRhjM = c(rep(1:kLRhjM,floor(nLRhjM/kLRhjM)*kLRhjM))
+set.seed(123)
+cvgroupsLRhjM = sample(groupsLRhjM, nLRhjM) #place observations in random groups
+
+#1st LR model CV - fewest vars =======================================================
+predictvalsLRhjM1 = rep(-1,nLRhjM) #makes troubleshooting easier
+# predictvals #test print
+for(iLRhjM1 in 1:kLRhjM){
+  groupiLRhjM1 = (cvgroupsLRhjM==iLRhjM1) #all obs in each group created previously
+  fitLRhjM1 = glm(Medal01 ~ Year,
+                  data=finalHJm[groupiLRhjM1,], family="binomial")
+  predictvalsLRhjM1[groupiLRhjM1] = predict(fitLRhjM1, finalHJm[groupiLRhjM1,],
+                                type="response")
+}
+
+
+#2nd LR model CV- medium vars =======================================================
+predictvalsLRhjM2 = rep(-1,nLRhjM) #makes troubleshooting easier
+# predictvals #test print
+for(iLRhjM2 in 1:kLRhjM){
+  groupiLRhjM2 = (cvgroupsLRhjM == iLRhjM2) #all obs in each group created previously
+  fitLRhjM2 = glm(Medal01 ~ Age + Height + Weight_resid + Year,
+                  data=finalHJm[groupiLRhjM2,], family="binomial")
+  predictvalsLRhjM2[groupiLRhjM2] = predict(fitLRhjM2, finalHJm[groupiLRhjM2,],
+                                type="response")
+}
+
+
+#3rd LR model - most vars =======================================================
+predictvalsLRhjM3 = rep(-1,nLRhjM) #makes troubleshooting easier
+# predictvals #test print
+for(iLRhjM3 in 1:kLRhjM){
+  groupiLRhjM3 = (cvgroupsLRhjM==iLRhjM3) #all obs in each group created previously
+  fitLRhjM3 = glm(Medal01 ~ Age + Height + Weight_resid + Team + Year,
+                  data=finalHJm[groupiLRhjM3,], family="binomial")
+  predictvalsLRhjM3[groupiLRhjM3] = predict(fitLRhjM3, finalHJm[groupiLRhjM3,],
+                                type="response")
+}
+```
+
+```{r, warning=F}
+#determine misclassification rates for each model ============================
+
+#model 1 ----------------------------------
+conMatLRhjM1 <- addmargins(table(predictvalsLRhjM1 > 0.5, finalHJm$Medal01))
+rownames(conMatLRhjM1) = c("pred No Medal", "pred Medal", "Sum") #label row names
+colnames(conMatLRhjM1) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRhjM1
+
+misclassLRhjM1 = (conMatLRhjM1[1,2] + conMatLRhjM1[2,1])/conMatLRhjM1[3,3]
+cat("\nmisclassification rate for model fitLRhjM1:", misclassLRhjM1)
+cat("\n\nAccuracy of Logistic Regression\nModel 1 for Male High Jumpers :", (1-misclassLRhjM1)*100, "%")
+cat("\n------------------------------------\n")
+
+#model 2 ----------------------------------
+conMatLRhjM2 <- addmargins(table(predictvalsLRhjM2 > 0.5, finalHJm$Medal01))
+rownames(conMatLRhjM2) = c("pred No Medal", "pred Medal", "Sum") #label row names
+colnames(conMatLRhjM2) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRhjM2
+
+misclassLRhjM2 = (conMatLRhjM2[1,2] + conMatLRhjM2[2,1])/conMatLRhjM2[3,3]
+cat("\nmisclassification rate for model fitLRhjM2:", misclassLRhjM2)
+cat("\n\nAccuracy of Logistic Regression\nModel 2 for Male High Jumpers :", (1-misclassLRhjM2)*100, "%")
+cat("\n------------------------------------\n")
+
+#model 3 ----------------------------------
+conMatLRhjM3 <- addmargins(table(predictvalsLRhjM3 > 0.45, finalHJm$Medal01)) #adjust thresh from ROC for best misclass rate
+rownames(conMatLRhjM3) = c("pred No Medal", "pred Medal", "Sum") #label row names
+colnames(conMatLRhjM3) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRhjM3
+
+misclassLRhjM3 = (conMatLRhjM3[1,2] + conMatLRhjM3[2,1])/conMatLRhjM3[3,3]
+cat("\nmisclassification rate for model fitLRhjM3:", misclassLRhjM3)
+cat("\n\nAccuracy of Logistic Regression\nModel 3 for Male High Jumpers :", (1-misclassLRhjM3)*100, "%")
+```
+Use ROC curve and AUC as better assessment of fit to ensure outperformance of no information model
+```{r, warning=F, message=F, fig.height=5.5, fig.width=6}
+#plot ROC curves ====================================================
+library(pROC) #library to get ROC curve
+
+#LR model3, most vars -------------
+myrocLRhjM3 = roc(response=finalHJm$Medal01, predictor=predictvalsLRhjM3)
+plot.roc(myrocLRhjM3, col="cadetblue", lty=2, lwd=3)
+#LR model2, medium vars ---------------
+myrocLRhjM2 = roc(response=finalHJm$Medal01, predictor=predictvalsLRhjM2)
+plot.roc(myrocLRhjM2, add=T, col="gold3", lty=4, lwd=3)
+#LR model1, fewest variables ---------
+myrocLRhjM1 = roc(response=finalHJm$Medal01, predictor=predictvalsLRhjM1)
+plot.roc(myrocLRhjM1, add=T, col="firebrick", lty=3, lwd=3)
+
+
+
+legend("bottomright", legend=c("Age + Height + Weight_resid + Team + Year",
+                               "Age + Height + Weight_resid + Year",
+                               "Year"),
+       lty=c(2,4,3), lwd=3, col=c("cadetblue", "gold3", "firebrick"))
+title("ROC Curve for Male High Jump Predictors")
+
+#AUCs ======================
+text(.8, .88, paste0("AUC:\n", round(auc(myrocLRhjM3),3)), col="cadetblue", cex=1.2)
+text(.55, .8, paste0("AUC:\n", round(auc(myrocLRhjM2),2)), col="gold3", cex=1.2)
+text(.3, .77, paste0("AUC:\n", round(auc(myrocLRhjM1),2)), col="firebrick", cex=1.2)
+
+```
+
+
+# ###########################################################################
+# Artificial Neural Network (ANN) Model for Male High Jumpers ================================================================
+# ###########################################################################
+
+```{r}
+#reprint df to modify for ANN
+finalHJANN <- dummyHJm[,c(1:3,5,4,7)] #reorder df for easier scaling
+finalHJANN <- na.omit(finalHJANN) #get rid of the rows with NA
+# NOTE: future model refinement could include imputation of vals
+finalHJANN #final refined df
+```
+
+```{r, warning=F}
+#standardize data
+HJstd <- data.frame(scale(finalHJANN[,1:4]),Team=finalHJANN[,5],Medal01=finalHJANN[,6])
+HJstd$Medal <- ifelse(HJstd$Medal01 == 0, "No", "Yes")
+HJstd$Medal01 <- NULL
+HJstd$Medal <- factor(HJstd$Medal)
+HJstd
+```
+
+```{r, warning=F}
+library(nnet)
+set.seed(100)
+fitHJANN = nnet(Medal ~ Age+Height+Weight+Team+Year, 
+            data = HJstd, size = 5, maxit = 1000) # tweak size to find better fit ========================== 5 is best
+# trial and error to find best size (use CV in future iterations)
+```
+
+```{r, warning=F}
+summary(fitHJANN)
+summary(fitHJANN$fitted.values)
+```
+
+```{r, warning=F}
+library(NeuralNetTools) #import lib for graphs
+```
+
+```{r, warning=F}
+plotnet(fitHJANN, struct=struct)
+```
+
+```{r, warning=F}
+#set up vars for conf matrix
+maxMedalHJ = apply(fitHJANN$fitted.values, 1, which.max)
+maxProbHJ = apply(fitHJANN$fitted.values, 1, max)
+highProbHJ = which(maxProbHJ > .95)
+```
+
+```{r, warning=F}
+#create conf matrix to see accuracy of model
+predMedalHJ = rep(NA, nrow(HJstd)) #empty container for predictions
+# predMedal
+predMedalHJ[highProbHJ] = maxMedalHJ[highProbHJ]
+predMedalHJ <- ifelse(is.na(predMedalHJ), "No", "Yes")
+# predMedal
+conMatANNHJ <- addmargins(table(predMedalHJ, HJstd$Medal)) #conf matrix
+conMatANNHJ
+# HJstd$Medal
+
+
+
+misclassANNHJ = (conMatANNHJ[1,2] + conMatANNHJ[2,1])/conMatANNHJ[3,3]
+cat("\nmisclassification rate:", misclassANNHJ)
+cat("\n\nAccuracy of ANN Model for Male High Jumpers:", (1-misclassANNHJ)*100, "%")
+```
+From this accuracy, we can see that logistic regression model is nearly identical.
+
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ############################################## Swimming modeling ############################################### ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+# ■■■■■■ ################################################################################################################ ■■■■■■
+Since, we decided during the High Jump analysis to focus only on the male population because of time/scope restrictions, we will continue that analysis throughout the swimmer modeling.
+
+```{r, warning=F}
+#separate swimmers ------------------------------------------
+allSwimmers <- olympic[which(olympic$Sport == "Swimming"),] #ensures "Synchronized Swimming" was not included
+allSwimmers
+
+#separate male swimmers by pullling out events with "Swimming Men's" --------------------------
+Mswimmers <- allSwimmers[which(grepl("Swimming Men's", allSwimmers$Event, fixed=TRUE) == TRUE),]
+Mswimmers
+```
+
+```{r, warning=F}
+#add binary Medal column
+dummyMswim <- Mswimmers #create new df
+dummyMswim$Medal = factor(dummyMswim$Medal) #change Medal to fctr
+dummyMswim$Medal01 <- ifelse(is.na(dummyMswim$Medal), 0, 1) #create binary Medal col
+dummyMswim
+```
+
+```{r, warning=F}
+#create a refined df with only necessary cols
+refinedSWm <- dummyMswim[,-which(names(dummyMswim) %in% 
+                                c("ID", "Name", "Sex", "Games",
+                                  "NOC", "Games", "Season", "Sport",
+                                  "Medal"))]
+# chose to remove 3K rows of data because of importance of keeping all predictors
+# future model refinement could include imputation of NAs
+refinedSWm <- na.omit(refinedSWm) #get rid of the rows with NA
+refinedSWm #test print
+```
+
+```{r, warning=F}
+#test fit to inspect var significance
+fitLRall = lm(Medal01 ~ .,
+          data=refinedSWm, family=binomial)
+options(max.print = 9999)
+summary(fitLRall)
+```
+*after exploring the data, I chose getting rid of relays and all events with "Yard" (switched to meters after 1904) since they can falsely weight results (e.g. New York Athletic Club)*
+```{r, warning=F}
+#remove relay events
+noRelaySWm <- refinedSWm[which(grepl("Relay", refinedSWm$Event, fixed=TRUE) == FALSE),]
+
+#remove events measured in yards to get rid of NAs
+finalSWm <- noRelaySWm[which(grepl("yard", noRelaySWm$Event, fixed=TRUE) == FALSE),] 
+
+#test print
+finalSWm
+```
+
+```{r, warning=F}
+#factorize and reorg new df
+finalSWm$Team = factor(finalSWm$Team)
+finalSWm$City = factor(finalSWm$City)
+finalSWm$Event = factor(finalSWm$Event)
+finalSWm <- finalSWm[,c(1:3,5,4,8)]
+finalSWm
+```
+Next, regress Weight variable to remove possible collinearity
+```{r, warning=F}
+#regress height and weight on each other ----------------------------------------
+fit_WeightSWm <- lm(Weight ~ Age + Height + Year + Team, data=finalSWm)
+finalSWm$Weight_resid <- fit_WeightSWm$residuals
+# finalSWm #test print
+finalSWm <- finalSWm[,c(1,2,7,4:6)] #reorg var cols
+pairs(finalSWm, col="cadetblue") #check for collinearity
+```
+finalSWm dataframe looks ready for cross-validation
+```{r, warning=F}
+#set up params for cross-validation of male swimmers
+nLRswM=dim(finalSWm)[1] #num of observations
+kLRswM=10 #using 10-fold cross-validation
+groupsLRswM = c(rep(1:kLRswM,floor(nLRswM/kLRswM)*kLRswM))
+set.seed(123)
+cvgroupsLRswM = sample(groupsLRswM, nLRswM) #place observations in random groups
+
+#4th LR model (first for swimmers) - fewest vars ======================================= LRmod4
+predictvalsLRswM4 = rep(-1,nLRswM) #container
+for(iLRswM4 in 1:kLRswM){
+  groupiLRswM4 = (cvgroupsLRswM==iLRswM4) #all obs in each group created previously
+  fitLRswM4 = glm(Medal01 ~ Year,
+            data=finalSWm[groupiLRswM4,], family="binomial")
+  predictvalsLRswM4[groupiLRswM4] = predict(fitLRswM4, finalSWm[groupiLRswM4,],
+                                type="response")
+}
+
+
+#5th LR model (2nd for swimmers) - medium vars ======================================================= LRmod5
+predictvalsLRswM5 = rep(-1,nLRswM) #container
+# predictvals #test print
+for(iLRswM5 in 1:kLRswM){
+  groupiLRswM5 = (cvgroupsLRswM == iLRswM5) #all obs in each group created previously
+  fitLRswM5 = glm(Medal01 ~ Age + Height + Weight_resid + Year,
+                  data=finalSWm[groupiLRswM5,], family="binomial")
+  predictvalsLRswM5[groupiLRswM5] = predict(fitLRswM5, finalSWm[groupiLRswM5,],
+                                type="response")
+}
+
+
+#6th LR model (3rd for swimmers) - most vars ======================================================= LRmod6
+predictvalsLRswM6 = rep(-1,nLRswM) #container
+# predictvals #test print
+for(iLRswM6 in 1:kLRswM){
+  groupiLRswM6 = (cvgroupsLRswM==iLRswM6) #all obs in each group created previously
+  fitLRswM6 = glm(Medal01 ~ Age + Height + Weight_resid + Team + Year,
+                  data=finalSWm[groupiLRswM6,], family="binomial")
+  predictvalsLRswM6[groupiLRswM6] = predict(fitLRswM6, finalSWm[groupiLRswM6,],
+                                type="response")
+}
+```
+
+```{r}
+#determine misclassification rates for each model ============================
+
+#model 4 -----------------------------------------------------------------
+conMatLRswM4 <- addmargins(table(predictvalsLRswM4 > 0.5, finalSWm$Medal01))
+rownames(conMatLRswM4) = c("pred No Medal", "Sum") #label row names
+colnames(conMatLRswM4) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRswM4
+
+misclassLRswM4 = (conMatLRswM4[1,1] / conMatLRswM4[2,3])
+
+cat("\n*no medalers predicted with this model - 'no information model'\n")
+cat("\n*Since such a small amount of Olympians medal for such a large portion of competitors, a model has to outperform the no information model of", misclassLRswM4, "to be useful." )
+cat("\n------------------------------------\n")
+
+#model 5 ---------------------------------------------------------
+conMatLRswM5 <- addmargins(table(predictvalsLRswM5 > 0.5, finalSWm$Medal01))
+rownames(conMatLRswM5) = c("pred No Medal", "pred Medal", "Sum") #label row names
+colnames(conMatLRswM5) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRswM5
+
+misclassLRswM5 = (conMatLRswM5[1,2] + conMatLRswM5[2,1])/conMatLRswM5[3,3]
+cat("\nmisclassification rate for model fitLRswM2:", misclassLRswM5)
+cat("\n\nAccuracy of Logistic Regression\nModel 2 for Male Swimmers :", (1-misclassLRswM5)*100, "%\n")
+cat("\n*Model doesn't outperform assigning 'no medal to everyone.'" )
+cat("\n------------------------------------\n")
+
+#model 6 ---------------------------------------------------------------------
+conMatLRswM6 <- addmargins(table(predictvalsLRswM6 > 0.5, finalSWm$Medal01))
+rownames(conMatLRswM6) = c("pred No Medal", "pred Medal", "Sum") #label row names
+colnames(conMatLRswM6) = c("No Medal", "Medal", "Sum") #label col names
+conMatLRswM6
+
+misclassLRswM6 = (conMatLRswM6[1,2] + conMatLRswM6[2,1])/conMatLRswM6[3,3]
+cat("\nmisclassification rate for model fitLRswM3:", misclassLRswM6)
+cat("\n\nAccuracy of Logistic Regression\nModel 3 for Male Swimmers :", (1-misclassLRswM6)*100, "%")
+```
+
+Use ROC curve and AUC as better assessment of fit to ensure outperformance of no-information model.
+```{r, warning=F, message=F, fig.height=5.5, fig.width=6}
+#plot the models ===============================================
+
+#LR model4, fewest variables --------------------------------
+myrocLRswM4 = roc(response=finalSWm$Medal01, predictor=predictvalsLRswM4)
+plot.roc(myrocLRswM4, col="firebrick", lty=3, lwd=3)
+
+#LR model5, medium vars ----------------------------------------
+myrocLRswM5 = roc(response=finalSWm$Medal01, predictor=predictvalsLRswM5)
+plot.roc(myrocLRswM5, add=T, col="gold3", lty=4, lwd=3)
+
+#LR model6, most vars -----------------------------------------------
+myrocLRswM6 = roc(response=finalSWm$Medal01, predictor=predictvalsLRswM6)
+plot.roc(myrocLRswM6, add=T, col="cadetblue", lty=2, lwd=3)
+
+legend("bottomright", legend=c("Age + Height + Weight_resid + Team + Year",
+                               "Age + Height + Weight_resid + Year",
+                               "Year"),
+       lty=c(2,4,3), lwd=3, col=c("cadetblue", "gold3", "firebrick"))
+title("ROC Curve for Male Swimming Predictors")
+
+#AUCs ======================
+text(.68, .82, paste0("AUC:\n", round(auc(myrocLRswM6),2)), col="cadetblue", cex=1.2)
+text(0.5, .68, paste0("AUC:\n", round(auc(myrocLRswM5),2)), col="gold3", cex=1.1)
+text(.3, .66, paste0("AUC:\n", round(auc(myrocLRswM4),2)),col="firebrick", cex=1.2)
+# auc(myrocLR6)
+# auc(myrocLR5)
+# auc(myrocLR4)
+```
+
+# ###########################################################################
+# Artificial Neural Network (ANN) Model for Male Swimmers ================================================================
+# ###########################################################################
+
+```{r, warning=F}
+# prep df for ANN - go back to noRelaySWm df and remove yards again
+# then reorder and keep only necessary cols
+refinedSWmANN <- noRelaySWm[which(grepl("yard", noRelaySWm$Event, fixed=TRUE) == FALSE),]
+refinedSWmANN <- refinedSWmANN[,c(1,2,3,5,4,8)]
+refinedSWmANN
+```
+
+```{r, warning=F}
+#standardize data, and make binary Medal var more intuitive w Yes/No
+swimANN <- data.frame(scale(refinedSWmANN[,1:4]),
+                      Team = refinedSWmANN$Team, Medal01=refinedSWmANN[,6])
+swimANN$Medal <- ifelse(swimANN$Medal01 == 0, "No", "Yes")
+swimANN$Medal01 <- NULL
+swimANN$Medal <- factor(swimANN$Medal)
+swimANN
+```
+
+```{r, warning=F}
+library(nnet) #re-import nnet if necessary
+set.seed(100)
+fitSWANN = nnet(Medal ~ ., 
+            data = swimANN, size = 5, maxit = 1000, MaxNWts=3000) # tweak size to find better fit ========================== 5 is best
+# 5 found to be optimal through trial and error (set up CV to choose sizes if time)
+```
+Plot ANN
+```{r, warning=F}
+library(NeuralNetTools)
+```
+```{r, warning=F}
+plotnet(fitSWANN, struct=struct, circle_col="lightblue")
+    axis(1, at=-1:1) #apply grid to find where to put text
+    axis(2, at=0:1)
+    title("ANN Plot for Male Swimmers")
+```
+
+```{r, warning=F}
+# set up vars for conf matrix to test accuracy of ANN model
+fitSWANN$fitted.values[1:25] #test print
+maxMedalSW = apply(fitSWANN$fitted.values, 1, which.max)
+maxProbSW = apply(fitSWANN$fitted.values, 1, max)
+highProbSW = which(maxProbSW > .5)
+```
+
+```{r, warning=F}
+#set up confusion matrix to gauge accuracy of ANN
+predMedalSW = rep(NA, dim(swimANN)[1]) #empty container for predictions
+
+predMedalSW[highProbSW] = maxMedalSW[highProbSW]
+
+predMedalSW <- ifelse(is.na(predMedalSW), "No", "Yes")
+
+conMatSWANN <- addmargins(table(predMedalSW, swimANN$Medal)) #conf matrix
+conMatSWANN
+
+
+
+misclassSWANN = (conMatSWANN[1,2] + conMatSWANN[2,1])/conMatSWANN[3,3]
+cat("\nmisclassification rate:", misclassSWANN)
+cat("\nANN Model Accuracy Rate:",round((1-misclassSWANN)*100,2),"%")
+cat("\n*slightly better than 'no information model' and best logistic regression model")
+```
+
+Explore variable relationships for future model refinements and examining new data
+```{r, warning=F}
+#import libs for charts
+library(ggplot2)
+library(wesanderson)
+```
+
+```{r, warning=F}
+set.seed(100)
+#remove Team var to better examine other variables' relationships
+fitSWANN2 = nnet(Medal ~ Age + Height + Weight + Year, 
+            data = swimANN, size = 8, maxit = 1000)
+#optimal size found through trial and error - 0.07667908 misclass rate
+```
+
+```{r, warning=F, fig.height=5.5, fig.width=6}
+#garson plot
+gpal <- wes_palette(name = "Zissou1", 3, type = "continuous")
+garson(fitSWANN2) + #garson's algorithm
+ggtitle(label="Garson Plot for Variable Importance") +
+theme(plot.title = element_text(hjust = 0.5), 
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(colour = "black"))+
+scale_fill_gradientn(colors = rev(gpal))+
+scale_colour_gradientn(colors = rev(gpal))
+```
+
+
+
+```{r, warning=F, fig.height=5.5, fig.width=6}
+#look at lek profile
+lekpal <- wes_palette(name = "Zissou1", 3, type = "continuous")
+lekprofile(fitSWANN2) +
+ggtitle(label="Lek Profile for Variable Relationships") +
+theme(plot.title = element_text(hjust = 0.5),
+      axis.line = element_line(colour = "black"))+
+scale_color_brewer(palette="RdYlBu")
+```
+
+```{r, warning=F}
+
+```
+
+```{r, warning=F}
+
+```
+
+```{r, warning=F}
+
+```
+
+```{r, warning=F}
+
+```
+
