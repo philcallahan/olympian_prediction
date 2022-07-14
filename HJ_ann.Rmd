@@ -1,0 +1,239 @@
+---
+title: "Maximal Margin and Support Vector Classifiers"
+author: "Phil Callahan"
+date: "xx/xx/xxxx"
+output: word_document
+---
+#========================================================
+# Artificial Neural Network  =========================================================
+#========================================================
+
+#Lesson 10 ============================================= slide 13
+
+```{r, warning=FALSE}
+olympic <- read.csv("olympic_data.csv")
+olympic
+```
+```{r}
+#separate high jumpers
+#separate high jumpers
+MhighJumpers <- olympic[which(olympic$Event == "Athletics Men's High Jump"),]
+MhighJumpers
+```
+
+```{r}
+#refine the data
+refinedHJ <- MhighJumpers[,c(4,5,6,7,10,15)]
+refinedHJ
+```
+```{r}
+#make a Medal dummy col
+dummyHJ <- refinedHJ
+dummyHJ$Medal = factor(dummyHJ$Medal)
+dummyHJ$binMedal <- ifelse(is.na(dummyHJ$Medal), 0, 1)
+dummyHJ
+```
+
+```{r}
+finalHJ <- dummyHJ[,names(dummyHJ) != "Medal"] #klunky way to remove col by name if don't want to use numerical id
+finalHJ <- finalHJ[,c(1:3,5,4,6)] #reorder df for easier scaling
+finalHJ <- na.omit(finalHJ) #get rid of the rows with NA
+finalHJ
+```
+
+# unique to ANN =================================================
+
+```{r}
+#standardize data
+HJstd <- data.frame(scale(finalHJ[,1:4]),Team=finalHJ[,5],medal01=finalHJ[,6])
+HJstd$medal <- ifelse(HJstd$medal01 == 0, "No", "Yes")
+HJstd$medal01 <- NULL
+HJstd$medal <- factor(HJstd$medal)
+HJstd$Team <- factor(HJstd$Team)
+HJstd
+```
+#Lesson 10 ============================================= slide 17
+
+```{r, warning=FALSE}
+library(nnet)
+set.seed(100)
+fit = nnet(medal ~ Age+Height+Weight+Team+Year, 
+            data = HJstd, size = 4, maxit = 1000) # tweak size to find better fit ========================== 4 is best
+# size is num of hidden units, mxit is max num of iterations
+```
+#Lesson 10 ============================================= slide 18
+```{r, warning=FALSE}
+#slide 18
+summary(fit)
+summary(fit$fitted.values)
+```
+
+```{r, warning=FALSE}
+#slide18
+# install.packages("NeuralNetTools")
+library(NeuralNetTools) #has plotnet() fxn
+```
+
+```{r, warning=FALSE}
+plotnet(fit, struct=struct, cex_val=.5)
+    axis(1, at=-1:1) #apply grid to find where to put text
+    axis(2, at=0:1)
+    # main("sldkfj")
+    # text(-.1, .8, round(fit$wts[1], 2))
+    # text(-.45, .8, round(fit$wts[2], 2))
+    # text(-.62, .58, round(fit$wts[3], 2))
+    # text(-.62, .36, round(fit$wts[4], 2))
+    # text(0, .5, round(fit$wts[5], 2))
+    # text(-.4, .67, round(fit$wts[6], 2))
+    # text(-.44, .5, round(fit$wts[7], 2))
+    # text(-.42, .21, round(fit$wts[8], 2))
+    # text(.73, .8, round(fit$wts[9], 2))
+    # text(.3, .65, round(fit$wts[10], 2))
+    # text(.3, .35, round(fit$wts[11], 2))
+```
+#Lesson 10 ============================================= slide 19
+```{r, warning=FALSE}
+#slide 19 ??????????????????
+fit$fitted.values[1:25]
+
+maxMedal = apply(fit$fitted.values, 1, which.max)
+# maxMedal
+maxProb = apply(fit$fitted.values, 1, max)
+# maxProb
+highProb = which(maxProb > .65)
+# highProb
+```
+#Lesson 10 ============================================= slide 20
+```{r, warning=FALSE}
+#slide20
+# nrow(HJstd)
+predMedal = rep(NA, 671) #empty container for predictions
+# predMedal
+predMedal[highProb] = maxMedal[highProb]
+predMedal <- ifelse(is.na(predMedal), "No", "Yes")
+# predMedal
+conMat <- addmargins(table(predMedal, HJstd$medal)) #conf matrix
+conMat
+# HJstd$medal
+
+# length(which(is.na(predMedal))) #count num of probabilities greater than 19.5%
+
+misclass = (conMat[1,2] + conMat[2,1])/conMat[3,3]
+cat("\nmisclassification rate:", misclass)
+```
+size=4 is best, but maybe 2 most parsimonious
+
+
+#Lesson 10 ============================================= slide 21 (probs getting it to work)
+```{r, warning=FALSE}
+# #create training data ====================================problems getting code to work
+# xy = iris
+# n = dim(xy)[1]
+# k = 10
+# train = c(rep(1:k,floor(n/k)),1:(n%%k))
+# 
+# #made preds on new data
+# fit = nnet(Species ~ Petal.Length + Sepal.Length,
+#            data=iris[train,], size=1, maxit=200)
+# irisProb = predict(fit, iris[-train,]) #default for preds is to give probability
+# irisClass = predict(fit, iris[-train,], type=class) #if want predicted category, use arg type="class"
+```
+#Lesson 10 ============================================= slide 24
+```{r, warning=FALSE}
+#???????????????????????????????????????????????????????????
+# # CV to tune number of hidden nodes
+# n = dim(HJstd)[1]
+# k = 10 #using 10-fold cross-validation
+# sizes = 1:8 # number of hidden nodes
+# # groups = rep(1:k,floor(n/k))
+# if ((n%%k) == 0) {
+#         groups= rep(1:k,floor(n/k))} else {
+#         groups=c(rep(1:k,floor(n/k)),(1:(n%%k)))
+#     }
+# length(groups)
+# set.seed(100)
+# cvgroups = sample(groups,n) 
+# squaredError = matrix( , nr = n, nc = length(sizes) ) 
+# 	# squaredError[i, j] contains (y - yhat)^2 
+# 	# for observation i, size j
+```
+
+#Lesson 10 ============================================= slide 25
+```{r, warning=FALSE}
+#??????????????????????????????????????????????????????????????????? try if you want, but just subbing in 1-4 gave the result of 3 is best with 2 most parsimonious
+# set.seed(100, sample.kind = "Rounding")
+# for(i in 1:k){
+# 	groupi = (cvgroups == i)
+# 	for(j in 1:length(sizes)){
+# 		fit = nnet(medal ~ ., 
+# 			data = HJstd[!groupi,], size = sizes[j], maxit = 200,
+# 			linout = F, trace = F)
+# 
+# 		squaredError[groupi, j] = (HJstd$medal[groupi] - predict(fit, HJstd[groupi,]) )^2
+# 	} # end iteration over j
+# } # end iteration over i
+```
+
+
+```{r, warning=FALSE}
+#still slide27
+# library(NeuralNetTools)
+garson(fit) #garson's algorithm
+```
+tells us that Petal.Width is most influential while Petal.Length is least
+#Lesson 10 ============================================= slide 28
+```{r, warning=FALSE}
+lekprofile(fit)
+```
+
+
+# ##############################################################################################################################################################
+# ====================================================================
+# Logistic regression for predicting medal =====================================
+# ====================================================================
+# ##############################################################################################################################################################
+
+
+```{r, warning=FALSE}
+# use HJ df
+finalHJ
+```
+
+#Lesson 10 ============================================= slide 27
+```{r, warning=FALSE}
+#
+```
+#Lesson 10 ============================================= slide 27
+```{r, warning=FALSE}
+
+```
+#Lesson 10 ============================================= slide 27
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+```{r, warning=FALSE}
+
+```
+
+
