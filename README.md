@@ -1,4 +1,4 @@
-# olympian_prediction
+# Predicting Likelihood of Olympic Medaling using ANN and Logistic Regression
 As a high jumper in high school, I was always interested in what my chances of success would have been had I stuck with it, given my body type. From Kaggle.com, a dataset was found containing information on historical data for each Olympian from the last hundred years.
 The goal of this project was to establish initial models that would predict the probability of an Olympian to earn a medal while competing in the Olympics (i.e., gold, silver, or bronze), given the available predictors. Once satisfied with the initial models’ accuracy, I was curious how they would perform when applied to different sports, for example, sports that were possibly less correlated with height, like swimming.
 
